@@ -5,13 +5,15 @@ import json
 from torchvision import transforms
 
 
+transform = transforms.Compose(
+    [
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ]
+)
 
-transform = transforms.Compose([
-    transforms.Resize(256),
-    transforms.CenterCrop(224),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-])
 
 def visualize_log(log, log_visualize_dir):
     # Plot loss per epoch
@@ -42,7 +44,7 @@ def visualize_log(log, log_visualize_dir):
     for loss in log["train_loss_batch"]:
         train_loss_batch += loss
     plt.plot(train_loss_batch, label="train")
-    
+
     val_loss_batch = []
     for loss in log["val_loss_batch"]:
         val_loss_batch += loss
@@ -57,6 +59,7 @@ def visualize_log(log, log_visualize_dir):
 
 from pycocotools.coco import COCO
 from pycocoevalcap.eval import COCOEvalCap
+
 
 def metric_scores(annotation_path, prediction_path):
     # annotation_file = "captions_val2014.json"
@@ -85,5 +88,7 @@ def convert_karpathy_to_coco_format(karpathy_path, annotation_path, phase="test"
 
     karpathy_ids = set([x["cocoid"] for x in karpathy["images"] if x["split"] in phase])
     coco["images"] = [x for x in coco["images"] if x["id"] in karpathy_ids]
-    coco["annotations"] = [x for x in coco["annotations"] if x["image_id"] in karpathy_ids]
+    coco["annotations"] = [
+        x for x in coco["annotations"] if x["image_id"] in karpathy_ids
+    ]
     return coco

@@ -3,12 +3,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 import torchvision.transforms as transforms
+
 # import efficientnet model
 from efficientnet_pytorch import EfficientNet
 import math
 from torch.autograd import Variable
 import numpy as np
-
 
 
 # Embedding the input sequence
@@ -20,6 +20,7 @@ class Embedding(nn.Module):
     def forward(self, x):
         return self.embedding(x)
 
+
 # Norm layer
 class Norm(nn.Module):
     def __init__(self, embedding_dim):
@@ -28,6 +29,7 @@ class Norm(nn.Module):
 
     def forward(self, x):
         return self.norm(x)
+
 
 # The positional encoding vector
 class PositionalEncoder(nn.Module):
@@ -38,13 +40,15 @@ class PositionalEncoder(nn.Module):
         pe = torch.zeros(max_seq_len, embedding_dim)
         for pos in range(max_seq_len):
             for i in range(0, embedding_dim, 2):
-                pe[pos, i] = math.sin(pos/(10000**(2*i/embedding_dim)))
-                pe[pos, i+1] = math.cos(pos/(10000**((2*i+1)/embedding_dim)))
-        pe = pe.unsqueeze(0)        
-        self.register_buffer('pe', pe)
-    
+                pe[pos, i] = math.sin(pos / (10000 ** (2 * i / embedding_dim)))
+                pe[pos, i + 1] = math.cos(
+                    pos / (10000 ** ((2 * i + 1) / embedding_dim))
+                )
+        pe = pe.unsqueeze(0)
+        self.register_buffer("pe", pe)
+
     def forward(self, x):
-        x = x*math.sqrt(self.embedding_dim)
+        x = x * math.sqrt(self.embedding_dim)
         seq_length = x.size(1)
         pe = Variable(self.pe[:, :seq_length], requires_grad=False).to(x.device)
         # Add the positional encoding vector to the embedding vector
@@ -53,10 +57,9 @@ class PositionalEncoder(nn.Module):
         return x
 
 
-
 # Self-attention layer
 class SelfAttention(nn.Module):
-    ''' Scaled Dot-Product Attention '''
+    """Scaled Dot-Product Attention"""
 
     def __init__(self, dropout=0.1):
         super(SelfAttention, self).__init__()
@@ -72,6 +75,7 @@ class SelfAttention(nn.Module):
         output = torch.matmul(attn, value)
 
         return output
+
 
 # Multi-head attention layer
 class MultiHeadAttention(nn.Module):
@@ -97,13 +101,21 @@ class MultiHeadAttention(nn.Module):
         key = self.key_projection(key)
         value = self.value_projection(value)
         # Reshape the input
-        query = query.view(batch_size, -1, self.num_heads, self.dim_per_head).transpose(1, 2)
-        key = key.view(batch_size, -1, self.num_heads, self.dim_per_head).transpose(1, 2)
-        value = value.view(batch_size, -1, self.num_heads, self.dim_per_head).transpose(1, 2)
+        query = query.view(batch_size, -1, self.num_heads, self.dim_per_head).transpose(
+            1, 2
+        )
+        key = key.view(batch_size, -1, self.num_heads, self.dim_per_head).transpose(
+            1, 2
+        )
+        value = value.view(batch_size, -1, self.num_heads, self.dim_per_head).transpose(
+            1, 2
+        )
         # Calculate the attention
         scores = self.self_attention(query, key, value, mask)
         # Reshape the output
-        output = scores.transpose(1, 2).contiguous().view(batch_size, -1, self.embedding_dim)
+        output = (
+            scores.transpose(1, 2).contiguous().view(batch_size, -1, self.embedding_dim)
+        )
         # Apply the linear projection
         output = self.out(output)
         return output
@@ -117,7 +129,7 @@ class EncoderLayer(nn.Module):
         self.feed_forward = nn.Sequential(
             nn.Linear(embedding_dim, ff_dim),
             nn.ReLU(),
-            nn.Linear(ff_dim, embedding_dim)
+            nn.Linear(ff_dim, embedding_dim),
         )
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
@@ -135,14 +147,28 @@ class EncoderLayer(nn.Module):
 
 # Encoder transformer
 class Encoder(nn.Module):
-    def __init__(self, embedding_dim, max_seq_len, encoder_layers, num_heads, dropout=0.1, depth=5, fine_tune=True):
+    def __init__(
+        self,
+        embedding_dim,
+        max_seq_len,
+        encoder_layers,
+        num_heads,
+        dropout=0.1,
+        depth=5,
+        fine_tune=True,
+    ):
         super(Encoder, self).__init__()
-        self.eff = EfficientNet.from_pretrained(f'efficientnet-b{depth}')
+        self.eff = EfficientNet.from_pretrained(f"efficientnet-b{depth}")
         self.set_fine_tune(fine_tune)
-        self.avg_pool = nn.AdaptiveAvgPool2d((max_seq_len-1, 512))
-        self.layers = nn.ModuleList([EncoderLayer(embedding_dim, num_heads, 2048, dropout) for _ in range(encoder_layers)])
+        self.avg_pool = nn.AdaptiveAvgPool2d((max_seq_len - 1, 512))
+        self.layers = nn.ModuleList(
+            [
+                EncoderLayer(embedding_dim, num_heads, 2048, dropout)
+                for _ in range(encoder_layers)
+            ]
+        )
         self.norm = Norm(embedding_dim)
-    
+
     def forward(self, image):
         features = self.eff.extract_features(image)
         features = features.permute(0, 2, 3, 1)
@@ -170,7 +196,7 @@ class DecoderLayer(nn.Module):
         self.feed_forward = nn.Sequential(
             nn.Linear(embedding_dim, ff_dim),
             nn.ReLU(),
-            nn.Linear(ff_dim, embedding_dim)
+            nn.Linear(ff_dim, embedding_dim),
         )
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
@@ -191,12 +217,25 @@ class DecoderLayer(nn.Module):
 
 # Decoder model image captioning with Attention
 class Decoder(nn.Module):
-    def __init__(self, embedding_dim, vocab_size, max_seq_len, decoder_layers, num_heads, dropout=0.1):
+    def __init__(
+        self,
+        embedding_dim,
+        vocab_size,
+        max_seq_len,
+        decoder_layers,
+        num_heads,
+        dropout=0.1,
+    ):
         super(Decoder, self).__init__()
         self.embedding_dim = embedding_dim
         self.vocab_size = vocab_size
         self.embed = nn.Embedding(vocab_size, embedding_dim)
-        self.layers = nn.ModuleList([DecoderLayer(embedding_dim, num_heads, 2048, dropout) for _ in range(decoder_layers)])
+        self.layers = nn.ModuleList(
+            [
+                DecoderLayer(embedding_dim, num_heads, 2048, dropout)
+                for _ in range(decoder_layers)
+            ]
+        )
         self.dropout = nn.Dropout(dropout)
         self.norm = Norm(embedding_dim)
         self.position_embedding = PositionalEncoder(embedding_dim, max_seq_len, dropout)
@@ -212,12 +251,26 @@ class Decoder(nn.Module):
         x = self.norm(x)
         return x
 
+
 # Model image captioning with Attention
 class ImageCaptionModel(nn.Module):
-    def __init__(self, embedding_dim, vocab_size, max_seq_len, encoder_layers, decoder_layers, num_heads, dropout=0.1):
+    def __init__(
+        self,
+        embedding_dim,
+        vocab_size,
+        max_seq_len,
+        encoder_layers,
+        decoder_layers,
+        num_heads,
+        dropout=0.1,
+    ):
         super(ImageCaptionModel, self).__init__()
-        self.encoder = Encoder(embedding_dim, max_seq_len, encoder_layers, num_heads, dropout)
-        self.decoder = Decoder(embedding_dim, vocab_size, max_seq_len, decoder_layers, num_heads, dropout)
+        self.encoder = Encoder(
+            embedding_dim, max_seq_len, encoder_layers, num_heads, dropout
+        )
+        self.decoder = Decoder(
+            embedding_dim, vocab_size, max_seq_len, decoder_layers, num_heads, dropout
+        )
         self.embed = nn.Embedding(vocab_size, embedding_dim)
         self.norm = Norm(embedding_dim)
         self.fc = nn.Linear(embedding_dim, vocab_size)
@@ -237,8 +290,14 @@ class ImageCaptionModel(nn.Module):
         # Apply the linear projection
         decoder_output = self.fc(decoder_output)
         return decoder_output
-    
+
     def make_mask(self, target_ids):
         batch_size, len_target = target_ids.size()
-        subsequent_mask = (1 - torch.triu(torch.ones((1, len_target, len_target), device=target_ids.device), diagonal=1)).bool()
+        subsequent_mask = (
+            1
+            - torch.triu(
+                torch.ones((1, len_target, len_target), device=target_ids.device),
+                diagonal=1,
+            )
+        ).bool()
         return subsequent_mask
