@@ -1,3 +1,5 @@
+import os
+import json
 import time
 import torch
 import argparse
@@ -11,6 +13,22 @@ from evaluation import generate_caption
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+
+    # Input options
+    parser.add_argument(
+        "--input-path",
+        "-i",
+        type=str,
+        default=None,
+        help="Path to image file or directory",
+    )
+    parser.add_argument(
+        "--captions-json",
+        "-cj",
+        type=str,
+        default="./coco/karpathy/dataset_coco.json",
+        help="Karpathy JSON for true captions",
+    )
 
     # Model parameters
     parser.add_argument(
@@ -76,6 +94,24 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    # Speed: cuDNN benchmark
+    if torch.cuda.is_available():
+        torch.backends.cudnn.benchmark = True
+
+    # Load true captions mapping
+    true_captions = {}
+    if args.captions_json:
+        try:
+            data = json.load(open(args.captions_json, "r"))
+        except Exception as e:
+            print(f"Error loading captions JSON {args.captions_json}: {e}")
+            data = {}
+
+        for img in data.get("images", []):
+            key = img.get("filename")
+            caps = [s.get("raw") for s in img.get("sentences", [])]
+            true_captions[key] = caps
+
     device = torch.device(args.device)
 
     # Load tokenizer
@@ -94,33 +130,64 @@ def main() -> None:
         "dropout": args.dropout_rate,
     }
     model = ImageCaptionModel(**model_configs)
-    model.load_state_dict(torch.load(args.model_path, map_location=device))
+    try:
+        model.load_state_dict(torch.load(args.model_path, map_location=device))
+    except Exception as e:
+        print(f"Error loading model from {args.model_path}: {e}")
+        return
+
     model.to(device)
     model.eval()
     model_load_duration = timedelta(seconds=int(time.time() - load_start_time))
 
     print(f"Model loaded on {device} in {model_load_duration}")
 
-    # Generate captions
-    # TODO: predict image for a directory of images
-    while True:
-        image_path: str = input("Enter image path (or q to exit): ")
-        if image_path.lower() == "q":
-            break
-        loop_start_time = time.time()
-        generated_caption: str = generate_caption(
-            model=model,
-            image_path=image_path,
-            transform_fn=transform,
-            tokenizer=tokenizer,
-            max_seq_len=args.max_seq_len,
-            beam_width=args.beam_size,
-            device=device,
-            print_process=False,
-        )
-        loop_end_time = time.time()
-        print(f"--- Caption: {generated_caption}")
-        print(f"--- Time: {loop_end_time - loop_start_time} s")
+    # Process single or batch input
+    paths = []
+    if args.input_path:
+        if os.path.isdir(args.input_path):
+            for root, _, files in os.walk(args.input_path):
+                for f in files:
+                    if f.lower().endswith((".jpg", ".jpeg", ".png")):
+                        paths.append(os.path.join(root, f))
+        else:
+            paths = [args.input_path]
+    # Interactive fallback
+    if not paths:
+        print("Enter image path (or q to exit):")
+        while True:
+            p = input().strip()
+            if p.lower() == "q":
+                break
+            paths.append(p)
+
+    # Generate and print captions
+    for image_path in paths:
+        try:
+            start = time.time()
+            pred = generate_caption(
+                model=model,
+                image_path=image_path,
+                transform_fn=transform,
+                tokenizer=tokenizer,
+                max_seq_len=args.max_seq_len,
+                beam_width=args.beam_size,
+                device=device,
+                print_process=False,
+            )
+            dur = time.time() - start
+        except Exception as e:
+            print(f"Error generating caption for {image_path}: {e}")
+            continue
+
+        print(f"Image: {image_path}")
+        basename = os.path.basename(image_path)
+        if basename in true_captions:
+            for t in true_captions[basename]:
+                print(f"  True   : {t}")
+        print(f"  Pred   : {pred}")
+        print(f"  Time   : {dur:.3f}s")
+        print("=" * 80)
 
 
 if __name__ == "__main__":

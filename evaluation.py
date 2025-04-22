@@ -9,6 +9,7 @@ from tqdm import tqdm
 from datetime import timedelta
 import torch.nn.functional as F
 from typing import Any, Callable
+from torch.amp.autocast_mode import autocast
 from transformers.models.bert import BertTokenizer
 
 from models import ImageCaptionModel
@@ -28,91 +29,104 @@ def generate_caption(
     """
     Generate caption for an image.
     """
-    image = Image.open(image_path).convert("RGB")
+    try:
+        image = Image.open(image_path).convert("RGB")
+    except Exception as e:
+        print(f"Error opening image {image_path}: {e}")
+        return ""
+
     image = transform_fn(image)
     image = image.unsqueeze(0)
     image = image.to(device)
 
     # Generate caption
     with torch.no_grad():
-        # Feed forward Encoder
-        encoder_output = model.encoder(image)
+        try:
+            if torch.cuda.is_available():
+                torch.backends.cudnn.benchmark = True
 
-        # Initialize beam list
-        candidate_beams = [([tokenizer.cls_token_id], 0)]
-        completed_beams = []
+            with autocast(str(device)):
+                encoder_output = model.encoder(image)
 
-        # Start decoding
-        for _ in range(max_seq_len):
-            updated_beams = []
-            for sequence, score in candidate_beams:
-                # Get input token
-                input_token = torch.tensor([sequence]).to(device)
+            # Initialize beam list
+            candidate_beams = [([tokenizer.cls_token_id], 0)]
+            completed_beams = []
 
-                # Create mask
-                target_mask = model.make_mask(input_token).to(device)
+            # Start decoding
+            for _ in range(max_seq_len):
+                updated_beams = []
+                for sequence, score in candidate_beams:
+                    # Get input token
+                    input_token = torch.tensor([sequence]).to(device)
 
-                # Decoder forward pass
-                pred = model.decoder(input_token, encoder_output, target_mask)
+                    # Create mask
+                    target_mask = model.make_mask(input_token).to(device)
 
-                # Forward to linear classify token in vocab and Softmax
-                pred = F.softmax(model.fc(pred), dim=-1)
+                    # Decoder forward pass with autocast
+                    with autocast(str(device)):
+                        pred = model.decoder(input_token, encoder_output, target_mask)
 
-                # Get tail predict token
-                pred = pred[:, -1, :].view(-1)
+                    # Forward to linear classify token in vocab and Softmax
+                    pred = F.softmax(model.fc(pred), dim=-1)
 
-                # Get top k tokens
-                top_k_scores, top_k_tokens = pred.topk(beam_width)
+                    # Get tail predict token
+                    pred = pred[:, -1, :].view(-1)
 
-                # Update beams
-                for i in range(beam_width):
-                    updated_beams.append(
-                        (
-                            sequence + [top_k_tokens[i].item()],
-                            score + top_k_scores[i].item(),
+                    # Get top k tokens
+                    top_k_scores, top_k_tokens = pred.topk(beam_width)
+
+                    # Update beams
+                    for i in range(beam_width):
+                        updated_beams.append(
+                            (
+                                sequence + [top_k_tokens[i].item()],
+                                score + top_k_scores[i].item(),
+                            )
                         )
+
+                candidate_beams = sorted(
+                    copy.deepcopy(updated_beams), key=lambda x: x[1], reverse=True
+                )[:beam_width]
+
+                # Add completed beams to completed list and reduce beam size
+                for sequence, score in list(candidate_beams):
+                    if sequence[-1] == tokenizer.sep_token_id:
+                        completed_beams.append((sequence, score))
+                        candidate_beams.remove((sequence, score))
+                        beam_width -= 1
+
+                # Print screen progress
+                if print_process:
+                    print(f"Step {_+1}/{max_seq_len}")
+                    print(f"Beam width: {beam_width}")
+                    print(
+                        f"Beams: {[tokenizer.decode(beam[0]) for beam in candidate_beams]}"
                     )
+                    print(
+                        f"Completed beams: {[tokenizer.decode(beam[0]) for beam in completed_beams]}"
+                    )
+                    print(f"Beams score: {[beam[1] for beam in candidate_beams]}")
+                    print("-" * 100)
 
-            candidate_beams = sorted(
-                copy.deepcopy(updated_beams), key=lambda x: x[1], reverse=True
-            )[:beam_width]
+                if beam_width == 0:
+                    break
 
-            # Add completed beams to completed list and reduce beam size
-            for sequence, score in list(candidate_beams):
-                if sequence[-1] == tokenizer.sep_token_id:
-                    completed_beams.append((sequence, score))
-                    candidate_beams.remove((sequence, score))
-                    beam_width -= 1
+            # If no completed beams produced, fall back to current candidates
+            if not completed_beams:
+                completed_beams = candidate_beams
 
-            # Print screen progress
-            if print_process:
-                print(f"Step {_+1}/{max_seq_len}")
-                print(f"Beam width: {beam_width}")
-                print(
-                    f"Beams: {[tokenizer.decode(beam[0]) for beam in candidate_beams]}"
-                )
-                print(
-                    f"Completed beams: {[tokenizer.decode(beam[0]) for beam in completed_beams]}"
-                )
-                print(f"Beams score: {[beam[1] for beam in candidate_beams]}")
-                print("-" * 100)
+            # Sort the completed beams
+            completed_beams.sort(key=lambda x: x[1], reverse=True)
 
-            if beam_width == 0:
-                break
+            # Get best sequence tokens
+            target_tokens = completed_beams[0][0]
 
-        # If no completed beams produced, fall back to current candidates
-        if not completed_beams:
-            completed_beams = candidate_beams
-
-        # Sort the completed beams
-        completed_beams.sort(key=lambda x: x[1], reverse=True)
-
-        # Get best sequence tokens
-        target_tokens = completed_beams[0][0]
-
-        # Convert target sentence from tokens to string
-        caption = tokenizer.decode(target_tokens, skip_special_tokens=True)
-        return caption
+            # Convert target sentence from tokens to string
+            caption = tokenizer.decode(target_tokens, skip_special_tokens=True)
+            return caption
+        except Exception as e:
+            print(f"Error during caption generation for {image_path}: {e}")
+            return ""
 
 
 # Evaluate model on test dataset
@@ -167,7 +181,7 @@ def main() -> None:
         "--model-path",
         "-mp",
         type=str,
-        default="./pretrained/model_image_captioning_eff_transfomer_final.pt",
+        default="./pretrained/model_image_captioning_eff_transfomer_our.pt",
         help="Path to model file",
     )
     parser.add_argument(
@@ -177,6 +191,7 @@ def main() -> None:
         default="cuda:0",
         help="Device to use",
     )
+
     # Data parameters
     parser.add_argument(
         "--image-dir",
@@ -196,15 +211,24 @@ def main() -> None:
         "--val-annotations",
         "-vap",
         type=str,
-        default="./coco/annotations/annotations/captions_val2014.json",
+        default="./coco/annotations/captions_val2014.json",
         help="Validation annotations file path",
     )
     parser.add_argument(
         "--train-annotations",
         "-tap",
         type=str,
-        default="./coco/annotations/annotations/captions_train2014.json",
+        default="./coco/annotations/captions_train2014.json",
         help="Training annotations file path",
+    )
+
+    # Evaluation parameters
+    parser.add_argument(
+        "--beam-size",
+        "-bs",
+        type=int,
+        default=3,
+        help="Beam size for beam search",
     )
 
     # Output parameters
@@ -218,9 +242,9 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # Create output directory
-    if not os.path.exists(args.output_dir):
-        os.mkdir(args.output_dir)
+    # Speed optimizations
+    if torch.cuda.is_available():
+        torch.backends.cudnn.benchmark = True
 
     # Load tokenizer
     device = torch.device(args.device)
@@ -249,7 +273,11 @@ def main() -> None:
     print(f"Done load model on the {device} device in {time_load_model}")
 
     # Load test dataset
-    kaparthy = json.load(open(args.karpathy_json, "r"))
+    try:
+        kaparthy = json.load(open(args.karpathy_json, "r"))
+    except Exception as e:
+        print(f"Error loading Karpathy JSON {args.karpathy_json}: {e}")
+        return
 
     image_paths = [
         os.path.join(args.image_dir, image["filepath"], image["filename"])
@@ -275,44 +303,71 @@ def main() -> None:
     metrics: dict[str, Any] = {}
 
     for b in beam_widths:
-        predictions: list[dict[str, Any]] = []
-        for image_path, image_id in tqdm(
-            zip(image_paths, image_ids), total=len(image_paths)
-        ):
-            caption = generate_caption(
-                model=model,
-                image_path=image_path,
-                transform_fn=transform,
-                tokenizer=tokenizer,
-                max_seq_len=args.max_seq_len,
-                beam_width=b,
-                device=device,
+        try:
+            predictions: list[dict[str, Any]] = []
+            for image_path, image_id in tqdm(
+                zip(image_paths, image_ids), total=len(image_paths)
+            ):
+                caption = generate_caption(
+                    model=model,
+                    image_path=image_path,
+                    transform_fn=transform,
+                    tokenizer=tokenizer,
+                    max_seq_len=args.max_seq_len,
+                    beam_width=b,
+                    device=device,
+                )
+                predictions.append({"image_id": image_id, "caption": caption})
+
+                # # print per-image true and predicted captions
+                # print(f"Image: {image_path}")
+                # for t in true_captions.get(image_id, []):
+                #     print(f"  True   : {t}")
+                # print(f"  Pred   : {caption}")
+                # print("-" * 40)
+
+        except Exception as e:
+            print(f"Error processing beam width {b}: {e}")
+            continue
+
+        # Save predictions to JSON file
+        try:
+            predict_path = os.path.join(
+                args.output_dir, f"prediction_beam_width_{b}.json"
             )
-            predictions.append({"image_id": image_id, "caption": caption})
-
-        # Save prediction
-        predict_path = os.path.join(args.output_dir, f"prediction_beam_width_{b}.json")
-        json.dump(predictions, open(predict_path, "w"))
-
-        # Calculate metrics
-        result = metric_scores(annotation_path=ann_path, prediction_path=predict_path)
-        metrics[f"beam{b}"] = result
+            result = metric_scores(
+                annotation_path=ann_path, prediction_path=predict_path
+            )
+            metrics[f"beam{b}"] = result
+        except Exception as e:
+            print(f"Error computing metrics for beam{b}: {e}")
+            metrics[f"beam{b}"] = {}
 
     # print metrics scores and save scores
     metrics_path = os.path.join(args.output_dir, "metrics.json")
     json.dump(metrics, open(metrics_path, "w"))
 
-    print("--------------------- Done ----------------------------")
-    print(f"Metrics saved in {metrics_path}")
+    print("\n====== Evaluation Metrics ======")
     for b in beam_widths:
-        print(
-            f"Beam width {b}, predictions saved in "
-            f"{os.path.join(args.output_dir, f'prediction_beam_width_{b}.json')}"
-        )
-        result = metrics[f"beam{b}"]
-        for metric_name, metric_value in result.items():
-            print(f"----- {metric_name}: {metric_value}")
-    print("-------------------------------------------------------")
+        print(f"Beam Width {b}")
+        for metric_name, metric_value in metrics[f"beam{b}"].items():
+            print(f"  {metric_name:15}: {metric_value:.4f}")
+
+        print("-" * 40)
+
+    # Save summary to text file
+    summary_path = os.path.join(args.output_dir, "metrics_summary.txt")
+    with open(summary_path, "w") as f:
+
+        f.write("Evaluation Summary\n")
+        for b in beam_widths:
+
+            f.write(f"Beam Width {b}\n")
+            for metric_name, metric_value in metrics[f"beam{b}"].items():
+                f.write(f"  {metric_name:15}: {metric_value:.4f}\n")
+
+            f.write("-" * 40 + "\n")
+    print(f"Summary saved to {summary_path}")
 
 
 if __name__ == "__main__":

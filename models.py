@@ -77,7 +77,10 @@ class SelfAttention(nn.Module):
 
         if attention_mask is not None:
             attention_mask = attention_mask.unsqueeze(1)
-            attention_scores = attention_scores.masked_fill(attention_mask == 0, -1e9)
+            fill_val = torch.finfo(attention_scores.dtype).min
+            attention_scores = attention_scores.masked_fill(
+                attention_mask == 0, fill_val
+            )
 
         attention_probs = self.dropout(torch.softmax(attention_scores, dim=-1))
 
