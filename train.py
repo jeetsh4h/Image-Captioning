@@ -1,143 +1,172 @@
-import torch
-import torch.nn as nn
-import time
-import torch.nn.functional as F
-from transformers.models.auto.tokenization_auto import AutoTokenizer
-from tqdm import tqdm
-import numpy as np
-from datetime import datetime, timedelta
-from nltk.translate.bleu_score import corpus_bleu
-from nltk.translate.bleu_score import sentence_bleu
 import os
 import json
+import time
+import torch
+import argparse
+import numpy as np
+import torch.nn as nn
+from tqdm import tqdm
+from typing import Any
+from datetime import timedelta
+import torch.nn.functional as F
+from nltk.translate.bleu_score import corpus_bleu
 from nltk.translate.bleu_score import SmoothingFunction
-
-smoothie = SmoothingFunction()
+from transformers.models.auto.tokenization_auto import AutoTokenizer
 
 from utils import transform, visualize_log
 from datasets import ImageCaptionDataset
 from models import ImageCaptionModel
 
 
-def train_epoch(model, train_loader, tokenizer, criterion, optim, epoch, device):
+smoothie = SmoothingFunction()
+
+
+def train_epoch(
+    model: ImageCaptionModel,
+    train_loader: torch.utils.data.DataLoader,
+    tokenizer: AutoTokenizer,
+    loss_fn: nn.CrossEntropyLoss,
+    optimizer: torch.optim.Optimizer,
+    current_epoch: int,
+    device: torch.device,
+) -> tuple[float, Any, list[float]]:
+
     model.train()
-    total_loss, batch_bleu4 = [], []
-    hypotheses, references = [], []
+
+    losses: list[float] = []
+    bleu4_scores: list = []
+    hypotheses: list[list[str]] = []
+    references: list[list[list[str]]] = []
+
     bar = tqdm(
         enumerate(train_loader),
         total=len(train_loader),
-        desc=f"Training epoch {epoch+1}",
+        desc=f"Training epoch {current_epoch+1}",
     )
     for i, batch in bar:
-        image, caption, all_caps = (
-            batch["image"].to(device),
-            batch["caption"].to(device),
-            batch["all_captions_seq"],
-        )
-        target_input = caption[:, :-1]
-        target_mask = model.make_mask(target_input)
-        preds = model(image, target_input)
-        optim.zero_grad()
-        gold = caption[:, 1:].contiguous().view(-1)
-        loss = criterion(preds.view(-1, preds.size(-1)), gold)
+        images = batch["image"].to(device)
+        caption_ids = batch["caption"].to(device)
+
+        all_captions_seq = batch["all_captions_seq"]
+        decoder_input = caption_ids[:, :-1]
+        raw_logits = model(images, decoder_input)
+
+        optimizer.zero_grad()
+
+        target_tokens = caption_ids[:, 1:].contiguous().view(-1)
+        loss = loss_fn(raw_logits.view(-1, raw_logits.size(-1)), target_tokens)
+
         loss.backward()
-        optim.step()
-        total_loss.append(loss.item())
+        optimizer.step()
+
+        losses.append(loss.item())
 
         # Calculate BLEU-4 score
-        preds = F.softmax(preds, dim=-1)
-        preds = torch.argmax(preds, dim=-1)
-        preds = preds.detach().cpu().numpy()
-        caps = [tokenizer.decode(cap, skip_special_tokens=True) for cap in preds]
-        hypo = [cap.split() for cap in caps]
+        probs = F.softmax(raw_logits, dim=-1)
+        pred_ids = torch.argmax(probs, dim=-1).detach().cpu().numpy()
+        decoded_texts = [
+            tokenizer.decode(ids, skip_special_tokens=True) for ids in pred_ids  # type: ignore
+        ]
+        hypo = [text.split() for text in decoded_texts]
 
         batch_size = len(hypo)
         ref = []
-        for i in range(batch_size):
-            ri = [
-                all_caps[j][i].split() for j in range(len(all_caps)) if all_caps[j][i]
-            ]
+        for idx in range(batch_size):
+            ri = [entry[idx].split() for entry in all_captions_seq if entry[idx]]
             ref.append(ri)
-        batch_bleu4.append(corpus_bleu(ref, hypo, smoothing_function=smoothie.method4))
+
+        bleu4_scores.append(corpus_bleu(ref, hypo, smoothing_function=smoothie.method4))
         hypotheses += hypo
         references += ref
 
-        bar.set_postfix(loss=total_loss[-1], bleu4=batch_bleu4[-1])
+        bar.set_postfix(loss=losses[-1], bleu4=bleu4_scores[-1])
 
     train_bleu4 = corpus_bleu(
         references, hypotheses, smoothing_function=smoothie.method4
     )
-    train_loss = sum(total_loss) / len(total_loss)
-    return train_loss, train_bleu4, total_loss
+    average_loss = sum(losses) / len(losses)
+
+    return average_loss, train_bleu4, losses
 
 
-def validate_epoch(model, valid_loader, tokenizer, criterion, epoch, device):
+def validate_epoch(
+    model: ImageCaptionModel,
+    valid_loader: torch.utils.data.DataLoader,
+    tokenizer: AutoTokenizer,
+    loss_fn: nn.CrossEntropyLoss,
+    current_epoch: int,
+    device: torch.device,
+) -> tuple[float, Any, list[float]]:
+
     model.eval()
-    total_loss, batch_bleu4 = [], []
-    hypotheses, references = [], []
+
+    losses: list[float] = []
+    bleu4_scores: list = []
+    hypotheses: list[list[str]] = []
+    references: list[list[list[str]]] = []
+
     with torch.no_grad():
         bar = tqdm(
             enumerate(valid_loader),
             total=len(valid_loader),
-            desc=f"Validating epoch {epoch+1}",
+            desc=f"Validating epoch {current_epoch+1}",
         )
         for i, batch in bar:
-            image, caption, all_caps = (
-                batch["image"].to(device),
-                batch["caption"].to(device),
-                batch["all_captions_seq"],
-            )
-            target_input = caption[:, :-1]
-            target_mask = model.make_mask(target_input)
-            preds = model(image, target_input)
+            images = batch["image"].to(device)
+            caption_ids = batch["caption"].to(device)
 
-            gold = caption[:, 1:].contiguous().view(-1)
-            loss = criterion(preds.view(-1, preds.size(-1)), gold)
-            total_loss.append(loss.item())
+            all_captions_seq = batch["all_captions_seq"]
+            decoder_input = caption_ids[:, :-1]
+            raw_logits = model(images, decoder_input)
+            target_tokens = caption_ids[:, 1:].contiguous().view(-1)
 
-            preds = F.softmax(preds, dim=-1)
-            preds = torch.argmax(preds, dim=-1)
-            preds = preds.detach().cpu().numpy()
-            caps = [tokenizer.decode(cap, skip_special_tokens=True) for cap in preds]
-            hypo = [cap.split() for cap in caps]
+            loss = loss_fn(raw_logits.view(-1, raw_logits.size(-1)), target_tokens)
+            losses.append(loss.item())
+
+            probs = F.softmax(raw_logits, dim=-1)
+            pred_ids = torch.argmax(probs, dim=-1).detach().cpu().numpy()
+            decoded_texts = [
+                tokenizer.decode(ids, skip_special_tokens=True) for ids in pred_ids  # type: ignore
+            ]
+            hypo = [text.split() for text in decoded_texts]
 
             batch_size = len(hypo)
             ref = []
-            for i in range(batch_size):
-                ri = [
-                    all_caps[j][i].split()
-                    for j in range(len(all_caps))
-                    if all_caps[j][i]
-                ]
+            for idx in range(batch_size):
+                ri = [entry[idx].split() for entry in all_captions_seq if entry[idx]]
                 ref.append(ri)
-            batch_bleu4.append(
+
+            bleu4_scores.append(
                 corpus_bleu(ref, hypo, smoothing_function=smoothie.method4)
             )
             hypotheses += hypo
             references += ref
 
-            bar.set_postfix(loss=total_loss[-1], bleu4=batch_bleu4[-1])
+            bar.set_postfix(loss=losses[-1], bleu4=bleu4_scores[-1])
 
-    val_loss = sum(total_loss) / len(total_loss)
+    val_loss = sum(losses) / len(losses)
     val_bleu4 = corpus_bleu(references, hypotheses, smoothing_function=smoothie.method4)
-    return val_loss, val_bleu4, total_loss
+
+    return val_loss, val_bleu4, losses
 
 
 def train(
-    model,
-    train_loader,
-    valid_loader,
-    optim,
-    criterion,
-    start_epoch,
-    n_epochs,
-    tokenizer,
-    device,
-    model_path,
-    log_path,
-    early_stopping=5,
-):
+    model: ImageCaptionModel,
+    train_loader: torch.utils.data.DataLoader,
+    valid_loader: torch.utils.data.DataLoader,
+    optimizer: torch.optim.Optimizer,
+    loss_fn: nn.CrossEntropyLoss,
+    start_epoch: int,
+    n_epochs: int,
+    tokenizer: AutoTokenizer,
+    device: torch.device,
+    model_path: str,
+    log_path: str,
+    early_stopping: int = 5,
+) -> dict:
+
     model.train()
+
     if start_epoch > 0:
         log = json.load(open(log_path, "r"))
         best_train_bleu4, best_val_bleu4, best_epoch = (
@@ -147,6 +176,7 @@ def train(
         )
         print("Load model from epoch {}, and continue training.".format(best_epoch))
         model.load_state_dict(torch.load(model_path, map_location=device))
+
     else:
         log = {
             "train_loss": [],
@@ -166,17 +196,17 @@ def train(
             model=model,
             train_loader=train_loader,
             tokenizer=tokenizer,
-            optim=optim,
-            criterion=criterion,
-            epoch=epoch,
+            optimizer=optimizer,
+            loss_fn=loss_fn,
+            current_epoch=epoch,
             device=device,
         )
         val_loss, val_bleu4, val_loss_batch = validate_epoch(
             model=model,
             valid_loader=valid_loader,
             tokenizer=tokenizer,
-            criterion=criterion,
-            epoch=epoch,
+            loss_fn=loss_fn,
+            current_epoch=epoch,
             device=device,
         )
 
@@ -188,10 +218,12 @@ def train(
         if val_bleu4 > best_val_bleu4:
             best_val_bleu4 = val_bleu4
             best_epoch = epoch + 1
+
             # Save Model with best validation bleu4
             torch.save(model.state_dict(), model_path)
             print("-------- Detect improment and save the best model --------")
             count_early_stopping = 0
+
         else:
             count_early_stopping += 1
             if count_early_stopping >= early_stopping:
@@ -205,13 +237,14 @@ def train(
         log["val_loss"].append(val_loss)
         log["val_bleu4"].append(val_bleu4)
         log["val_loss_batch"].append(val_loss_batch)
-        log["best_train_bleu4"] = best_train_bleu4
-        log["best_val_bleu4"] = best_val_bleu4
-        log["best_epoch"] = best_epoch
-        log["last_epoch"] = epoch + 1
+        log["best_train_bleu4"] = best_train_bleu4  # type: ignore
+        log["best_val_bleu4"] = best_val_bleu4  # type: ignore
+        log["best_epoch"] = best_epoch  # type: ignore
+        log["last_epoch"] = epoch + 1  # type: ignore
+
         # Save log
         with open(log_path, "w") as f:
-            json.dump(log, f)
+            json.dump(log, f, indent=4)
 
         torch.cuda.empty_cache()
 
@@ -222,10 +255,10 @@ def train(
     return log
 
 
-def main():
-    import argparse
+def main() -> None:
 
     parser = argparse.ArgumentParser()
+
     # Model parameters
     parser.add_argument(
         "--embedding_dim", "-ed", type=int, default=512, help="Embedding dimension"
@@ -268,6 +301,7 @@ def main():
     parser.add_argument(
         "--dropout", "-dr", type=float, default=0.1, help="Dropout probability"
     )
+
     # Training parameters
     parser.add_argument(
         "--model_path",
@@ -306,6 +340,7 @@ def main():
     parser.add_argument(
         "--early_stopping", "-es", type=int, default=5, help="Early stopping"
     )
+
     # Data parameters
     parser.add_argument(
         "--image_dir",
@@ -335,6 +370,7 @@ def main():
         default="./coco/annotations/captions_train2014.json",
         help="Path to training annotation file",
     )
+
     # Log parameters
     parser.add_argument(
         "--log_path",
@@ -350,24 +386,32 @@ def main():
         default="./images/",
         help="Directory to save log visualization",
     )
+
     args = parser.parse_args()
 
     print("------------ Training parameters ----------------")
-    print(args)
+
+    print(f"---DEBUG---\n{args}\n---DEBUG---")
+
     if not os.path.exists(args.log_visualize_dir):
         print(f"Create directory {args.log_visualize_dir}")
         os.makedirs(args.log_visualize_dir)
+
     model_path_dir = os.path.dirname(args.model_path)
+
     if not os.path.exists(model_path_dir):
         print(f"Create directory {model_path_dir}")
         os.makedirs(model_path_dir)
+
     if not os.path.exists(args.image_dir):
         print(f"Directory image_dir {args.image_dir} does not exist")
         return
+
     print("-------------------------------------------------")
 
     device = torch.device(args.device)
     print("Using device: {}".format(device))
+
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
     model = ImageCaptionModel(
         embedding_dim=args.embedding_dim,
@@ -392,7 +436,7 @@ def main():
         image_dir=args.image_dir,
         tokenizer=tokenizer,
         max_seq_len=args.max_seq_len,
-        transform=transform,
+        transform_fn=transform,
         phase="train",
     )
     valid_dataset = ImageCaptionDataset(
@@ -400,7 +444,7 @@ def main():
         image_dir=args.image_dir,
         tokenizer=tokenizer,
         max_seq_len=args.max_seq_len,
-        transform=transform,
+        transform_fn=transform,
         phase="val",
     )
 
@@ -414,12 +458,13 @@ def main():
 
     # Train
     start_time = time.time()
+
     log = train(
         model=model,
         train_loader=train_loader,
         valid_loader=valid_loader,
-        optim=optim,
-        criterion=criterion,
+        optimizer=optim,
+        loss_fn=criterion,
         start_epoch=args.start_epoch,
         n_epochs=args.n_epochs,
         tokenizer=tokenizer,

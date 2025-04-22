@@ -1,6 +1,6 @@
-import argparse
 import time
 import torch
+import argparse
 from datetime import timedelta
 from transformers.models.bert import BertTokenizer
 
@@ -9,8 +9,9 @@ from models import ImageCaptionModel
 from evaluation import generate_caption
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
+
     # Model parameters
     parser.add_argument(
         "--embedding_dim", "-ed", type=int, default=512, help="Embedding dimension"
@@ -53,12 +54,14 @@ def main():
     parser.add_argument(
         "--dropout", "-dr", type=float, default=0.1, help="Dropout probability"
     )
+
     # Training parameters
     parser.add_argument(
         "--model_path",
         "-md",
         type=str,
-        default="./pretrained/model_image_captioning_eff_transfomer.pt",
+        # default="./pretrained/model_image_captioning_eff_transfomer_final.pt",
+        default="./pretrained/model_image_captioning_eff_transfomer_our.pt",
         help="Path to save model",
     )
     parser.add_argument(
@@ -71,11 +74,17 @@ def main():
     parser.add_argument(
         "--beam_size", "-b", type=int, default=3, help="Beam size for beam search"
     )
+
     args = parser.parse_args()
 
-    # Load model and tokenizer
     device = torch.device(args.device)
+
+    # Load tokenizer
     tokenizer = BertTokenizer.from_pretrained(args.tokenizer)
+
+    # Load model ImageCaptionModel
+    load_start_time = time.time()
+
     model_configs = {
         "embedding_dim": args.embedding_dim,
         "vocab_size": tokenizer.vocab_size,
@@ -85,34 +94,34 @@ def main():
         "num_heads": args.num_heads,
         "dropout": args.dropout,
     }
-    # Load model ImageCaptionModel
-    start_time = time.time()
     model = ImageCaptionModel(**model_configs)
     model.load_state_dict(torch.load(args.model_path, map_location=device))
     model.to(device)
     model.eval()
-    time_load_model = str(timedelta(seconds=int(time.time() - start_time)))
-    print(f"Done load model on the {device} device in {time_load_model}")
+    model_load_duration = timedelta(seconds=int(time.time() - load_start_time))
+
+    print(f"Model loaded on {device} in {model_load_duration}")
 
     # Generate captions
+    # TODO: predict image for a directory of images
     while True:
-        image_path = input("Enter image path (or q to exit): ")
-        if image_path == "q":
+        image_path: str = input("Enter image path (or q to exit): ")
+        if image_path.lower() == "q":
             break
-        st = time.time()
-        cap = generate_caption(
+        loop_start_time = time.time()
+        generated_caption: str = generate_caption(
             model=model,
             image_path=image_path,
-            transform=transform,
+            transform_fn=transform,
             tokenizer=tokenizer,
             max_seq_len=args.max_seq_len,
-            beam_size=args.beam_size,
+            beam_width=args.beam_size,
             device=device,
             print_process=False,
         )
-        end = time.time()
-        print("--- Caption: {}".format(cap))
-        print(f"--- Time: {end-st} (s)")
+        loop_end_time = time.time()
+        print(f"--- Caption: {generated_caption}")
+        print(f"--- Time: {loop_end_time - loop_start_time} s")
 
 
 if __name__ == "__main__":
