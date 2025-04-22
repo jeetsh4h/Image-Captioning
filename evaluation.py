@@ -121,96 +121,96 @@ def main() -> None:
 
     # Model parameters
     parser.add_argument(
-        "--embedding_dim", "-ed", type=int, default=512, help="Embedding dimension"
+        "--embed-dim", "-ed", type=int, default=512, help="Dimensionality of embeddings"
     )
     parser.add_argument(
-        "--tokenizer",
+        "--tokenizer-name",
         "-t",
         type=str,
         default="bert-base-uncased",
-        help="Bert tokenizer",
+        help="Name of pretrained tokenizer",
     )
     parser.add_argument(
-        "--max_seq_len",
+        "--max-seq-len",
         "-msl",
         type=int,
         default=128,
         help="Maximum sequence length for caption generation",
     )
     parser.add_argument(
-        "--encoder_layers",
-        "-ad",
+        "--encoder-layers",
+        "-el",
         type=int,
         default=3,
-        help="Number of layers in the transformer encoder",
+        help="Number of encoder layers",
     )
     parser.add_argument(
-        "--decoder_layers",
-        "-nl",
+        "--decoder-layers",
+        "-dl",
         type=int,
         default=6,
-        help="Number of layers in the transformer decoder",
+        help="Number of decoder layers",
     )
     parser.add_argument(
-        "--num_heads",
+        "--num-heads",
         "-nh",
         type=int,
         default=8,
-        help="Number of heads in multi-head attention",
+        help="Number of attention heads",
     )
     parser.add_argument(
-        "--dropout", "-dr", type=float, default=0.1, help="Dropout probability"
+        "--dropout-rate", "-dr", type=float, default=0.1, help="Dropout rate"
     )
 
     # Training parameters
     parser.add_argument(
-        "--model_path",
-        "-md",
+        "--model-path",
+        "-mp",
         type=str,
         default="./pretrained/model_image_captioning_eff_transfomer_final.pt",
-        help="Path to save model",
+        help="Path to model file",
     )
     parser.add_argument(
         "--device",
-        "-d",
+        "-dv",
         type=str,
         default="cuda:0",
-        help="Device to use {cpu, cuda:0, cuda:1,...}",
+        help="Device to use",
     )
     # Data parameters
     parser.add_argument(
-        "--image_dir",
+        "--image-dir",
         "-id",
         type=str,
         default="./coco/",
-        help="Path to image directory, this contains train2014, val2014",
+        help="Directory containing images",
     )
     parser.add_argument(
-        "--karpathy_json_path",
-        "-kap",
+        "--karpathy-json",
+        "-kjp",
         type=str,
         default="./coco/karpathy/dataset_coco.json",
-        help="Path to karpathy json file",
+        help="Path to Karpathy JSON file",
     )
     parser.add_argument(
-        "--val_annotation_path",
+        "--val-annotations",
         "-vap",
         type=str,
         default="./coco/annotations/annotations/captions_val2014.json",
-        help="Path to validation annotation file",
+        help="Validation annotations file path",
     )
     parser.add_argument(
-        "--train_annotation_path",
+        "--train-annotations",
         "-tap",
         type=str,
         default="./coco/annotations/annotations/captions_train2014.json",
-        help="Path to training annotation file",
+        help="Training annotations file path",
     )
 
     # Output parameters
     parser.add_argument(
-        "--output_dir",
-        "-o",
+        "--output-dir",
+        "-od",
         type=str,
         default="./results/",
         help="Directory to save results",
@@ -224,18 +224,18 @@ def main() -> None:
 
     # Load tokenizer
     device = torch.device(args.device)
-    tokenizer = BertTokenizer.from_pretrained(args.tokenizer)
+    tokenizer = BertTokenizer.from_pretrained(args.tokenizer_name)
 
     # Load model
     start_time = time.time()
     model_configs = {
-        "embedding_dim": args.embedding_dim,
+        "embedding_dim": args.embed_dim,
         "vocab_size": tokenizer.vocab_size,
         "max_seq_len": args.max_seq_len,
         "encoder_layers": args.encoder_layers,
         "decoder_layers": args.decoder_layers,
         "num_heads": args.num_heads,
-        "dropout": args.dropout,
+        "dropout": args.dropout_rate,
     }
     model = ImageCaptionModel(**model_configs)
     model.load_state_dict(
@@ -249,7 +249,7 @@ def main() -> None:
     print(f"Done load model on the {device} device in {time_load_model}")
 
     # Load test dataset
-    kaparthy = json.load(open(args.karpathy_json_path, "r"))
+    kaparthy = json.load(open(args.karpathy_json, "r"))
 
     image_paths = [
         os.path.join(args.image_dir, image["filepath"], image["filename"])
@@ -265,7 +265,7 @@ def main() -> None:
 
     # convert karpathy json to coco format for evaluation
     ann = convert_karpathy_to_coco_format(
-        karpathy_path=args.karpathy_json_path, annotation_path=args.val_annotation_path
+        karpathy_path=args.karpathy_json, annotation_path=args.val_annotations
     )
     ann_path = os.path.join(args.output_dir, "coco_annotation_test.json")
     json.dump(ann, open(ann_path, "w"))

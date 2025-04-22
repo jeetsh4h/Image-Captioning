@@ -131,41 +131,41 @@ def main() -> None:
 
     # Model parameters
     parser.add_argument(
-        "--tokenizer",
+        "--tokenizer-name",
         "-t",
         type=str,
         default="bert-base-uncased",
-        help="Bert tokenizer",
+        help="Name of pretrained tokenizer",
     )
     parser.add_argument(
-        "--max_seq_len",
+        "--max-seq-len",
         "-msl",
         type=int,
         default=128,
-        help="Maximum sequence length for caption generation",
+        help="Maximum sequence length",
     )
-    parser.add_argument("--batch_size", "-bs", type=int, default=16, help="Batch size")
+    parser.add_argument("--batch-size", "-bs", type=int, default=16, help="Batch size")
 
     # Data parameters
     parser.add_argument(
-        "--image_dir",
+        "--image-dir",
         "-id",
         type=str,
         default="./coco/",
-        help="Path to image directory, this contains train2014, val2014",
+        help="Directory containing images",
     )
     parser.add_argument(
-        "--karpathy_json_path",
-        "-kap",
+        "--karpathy-json",
+        "-kjp",
         type=str,
         default="./coco/karpathy/dataset_coco.json",
-        help="Path to karpathy json file",
+        help="Path to Karpathy JSON file",
     )
     args = parser.parse_args()
 
-    tokenizer = BertTokenizer.from_pretrained(args.tokenizer)
+    tokenizer = BertTokenizer.from_pretrained(args.tokenizer_name)
     dataset = ImageCaptionDataset(
-        karpathy_json_path=args.karpathy_json_path,
+        karpathy_json_path=args.karpathy_json,
         image_dir=args.image_dir,
         tokenizer=tokenizer,
         max_seq_len=args.max_seq_len,
@@ -174,7 +174,7 @@ def main() -> None:
     )
     print(dataset[0])
 
-    create_image_inputs(args.karpathy_json_path, args.image_dir, transform)
+    create_image_inputs(args.karpathy_json, args.image_dir, transform)
 
 
 # test the dataset class

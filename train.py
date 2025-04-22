@@ -261,130 +261,122 @@ def main() -> None:
 
     # Model parameters
     parser.add_argument(
-        "--embedding_dim", "-ed", type=int, default=512, help="Embedding dimension"
+        "--embed-dim", "-ed", type=int, default=512, help="Dimensionality of embeddings"
     )
     parser.add_argument(
-        "--tokenizer",
+        "--tokenizer-name",
         "-t",
         type=str,
         default="bert-base-uncased",
-        help="Bert tokenizer",
+        help="Name of pretrained tokenizer",
     )
     parser.add_argument(
-        "--max_seq_len",
-        "-msl",
-        type=int,
-        default=128,
-        help="Maximum sequence length for caption generation",
+        "--max-seq-len", "-msl", type=int, default=128, help="Maximum sequence length"
     )
     parser.add_argument(
-        "--encoder_layers",
-        "-ad",
-        type=int,
-        default=6,
-        help="Number of layers in the transformer encoder",
+        "--encoder-layers", "-el", type=int, default=6, help="Number of encoder layers"
     )
     parser.add_argument(
-        "--decoder_layers",
-        "-nl",
-        type=int,
-        default=12,
-        help="Number of layers in the transformer decoder",
+        "--decoder-layers", "-dl", type=int, default=12, help="Number of decoder layers"
     )
     parser.add_argument(
-        "--num_heads",
-        "-nh",
-        type=int,
-        default=8,
-        help="Number of heads in multi-head attention",
+        "--num-heads", "-nh", type=int, default=8, help="Number of attention heads"
     )
     parser.add_argument(
-        "--dropout", "-dr", type=float, default=0.1, help="Dropout probability"
+        "--dropout-rate", "-dr", type=float, default=0.1, help="Dropout rate"
     )
 
     # Training parameters
     parser.add_argument(
-        "--model_path",
-        "-md",
+        "--model-path",
+        "-mp",
         type=str,
         default="./pretrained/model_image_captioning_eff_transfomer.pt",
-        help="Path to save model",
+        help="Path to model file",
     )
     parser.add_argument(
-        "--device",
-        "-d",
-        type=str,
-        default="cuda:0",
-        help="Device to use {cpu, cuda:0, cuda:1,...}",
+        "--device", "-dv", type=str, default="cuda:0", help="Device to use"
     )
-    parser.add_argument("--batch_size", "-bs", type=int, default=24, help="Batch size")
+    parser.add_argument("--batch-size", "-bs", type=int, default=24, help="Batch size")
     parser.add_argument(
-        "--n_epochs", "-ne", type=int, default=25, help="Number of epochs"
+        "--num-epochs", "-ne", type=int, default=25, help="Number of training epochs"
     )
     parser.add_argument(
-        "--start_epoch",
-        "-se",
+        "--start-epoch", "-se", type=int, default=0, help="Starting epoch index"
+    )
+    parser.add_argument(
+        "--learning-rate",
+        "-lr",
+        type=float,
+        default=1e-4,
+        help="Learning rate for optimizer",
+    )
+    parser.add_argument(
+        "--adam-betas",
+        "-bt",
+        type=tuple,
+        default=(0.9, 0.999),
+        help="Adam optimizer betas",
+    )
+    parser.add_argument(
+        "--adam-eps",
+        "-eps",
+        type=float,
+        default=1e-9,
+        help="Adam optimizer epsilon value",
+    )
+    parser.add_argument(
+        "--early-stopping",
+        "-es",
         type=int,
-        default=0,
-        help="Start epoch. If start_epoch > 0, load model from model_path and continue training",
-    )
-    parser.add_argument(
-        "--learning_rate", "-lr", type=float, default=1e-4, help="Learning rate"
-    )
-    parser.add_argument(
-        "--betas", "-bt", type=tuple, default=(0.9, 0.999), help="Adam optimizer betas"
-    )
-    parser.add_argument(
-        "--eps", "-eps", type=float, default=1e-9, help="Adam optimizer epsilon"
-    )
-    parser.add_argument(
-        "--early_stopping", "-es", type=int, default=5, help="Early stopping"
+        default=5,
+        help="Patience for early stopping",
     )
 
     # Data parameters
     parser.add_argument(
-        "--image_dir",
+        "--image-dir",
         "-id",
         type=str,
         default="./coco/",
-        help="Path to image directory, this contains train2014, val2014",
+        help="Directory containing images",
     )
     parser.add_argument(
-        "--karpathy_json_path",
-        "-kap",
+        "--karpathy-json",
+        "-kjp",
         type=str,
         default="./coco/karpathy/dataset_coco.json",
-        help="Path to karpathy json file",
+        help="Path to Karpathy JSON file",
     )
     parser.add_argument(
-        "--val_annotation_path",
+        "--val-annotations",
         "-vap",
         type=str,
         default="./coco/annotations/captions_val2014.json",
-        help="Path to validation annotation file",
+        help="Validation annotations file path",
     )
     parser.add_argument(
-        "--train_annotation_path",
+        "--train-annotations",
         "-tap",
         type=str,
         default="./coco/annotations/captions_train2014.json",
-        help="Path to training annotation file",
+        help="Training annotations file path",
     )
 
     # Log parameters
     parser.add_argument(
-        "--log_path",
+        "--log-path",
         "-lp",
         type=str,
         default="./images/log_training.json",
-        help="Path to log file for training",
+        help="Training log file path",
     )
     parser.add_argument(
-        "--log_visualize_dir",
+        "--log-vis-dir",
         "-lvd",
         type=str,
         default="./images/",
-        help="Directory to save log visualization",
+        help="Directory for log visualizations",
     )
 
     args = parser.parse_args()
@@ -393,9 +385,9 @@ def main() -> None:
 
     print(f"---DEBUG---\n{args}\n---DEBUG---")
 
-    if not os.path.exists(args.log_visualize_dir):
-        print(f"Create directory {args.log_visualize_dir}")
-        os.makedirs(args.log_visualize_dir)
+    if not os.path.exists(args.log_vis_dir):
+        print(f"Create directory {args.log_vis_dir}")
+        os.makedirs(args.log_vis_dir)
 
     model_path_dir = os.path.dirname(args.model_path)
 
@@ -412,27 +404,30 @@ def main() -> None:
     device = torch.device(args.device)
     print("Using device: {}".format(device))
 
-    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name)
     model = ImageCaptionModel(
-        embedding_dim=args.embedding_dim,
+        embedding_dim=args.embed_dim,
         vocab_size=tokenizer.vocab_size,
         max_seq_len=args.max_seq_len,
         encoder_layers=args.encoder_layers,
         decoder_layers=args.decoder_layers,
         num_heads=args.num_heads,
-        dropout=args.dropout,
+        dropout=args.dropout_rate,
     )
     model.to(device)
     print("Model to {}".format(device))
 
     criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id)
     optim = torch.optim.Adam(
-        model.parameters(), lr=args.learning_rate, betas=args.betas, eps=args.eps
+        model.parameters(),
+        lr=args.learning_rate,
+        betas=args.adam_betas,
+        eps=args.adam_eps,
     )
 
     # Dataset
     train_dataset = ImageCaptionDataset(
-        karpathy_json_path=args.karpathy_json_path,
+        karpathy_json_path=args.karpathy_json,
         image_dir=args.image_dir,
         tokenizer=tokenizer,
         max_seq_len=args.max_seq_len,
@@ -440,7 +435,7 @@ def main() -> None:
         phase="train",
     )
     valid_dataset = ImageCaptionDataset(
-        karpathy_json_path=args.karpathy_json_path,
+        karpathy_json_path=args.karpathy_json,
         image_dir=args.image_dir,
         tokenizer=tokenizer,
         max_seq_len=args.max_seq_len,
@@ -466,7 +461,7 @@ def main() -> None:
         optimizer=optim,
         loss_fn=criterion,
         start_epoch=args.start_epoch,
-        n_epochs=args.n_epochs,
+        n_epochs=args.num_epochs,
         tokenizer=tokenizer,
         device=device,
         model_path=args.model_path,
@@ -489,7 +484,7 @@ def main() -> None:
     json.dump(log, open(args.log_path, "w"))
 
     # Visualize loss and save to log_visualize_dir
-    visualize_log(log, args.log_visualize_dir)
+    visualize_log(log, args.log_vis_dir)
 
 
 if __name__ == "__main__":

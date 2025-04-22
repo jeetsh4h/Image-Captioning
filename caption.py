@@ -14,65 +14,64 @@ def main() -> None:
 
     # Model parameters
     parser.add_argument(
-        "--embedding_dim", "-ed", type=int, default=512, help="Embedding dimension"
+        "--embed-dim", "-ed", type=int, default=512, help="Dimensionality of embeddings"
     )
     parser.add_argument(
-        "--tokenizer",
+        "--tokenizer-name",
         "-t",
         type=str,
         default="bert-base-uncased",
-        help="Bert tokenizer",
+        help="Name of pretrained tokenizer",
     )
     parser.add_argument(
-        "--max_seq_len",
+        "--max-seq-len",
         "-msl",
         type=int,
         default=128,
-        help="Maximum sequence length for caption generation",
+        help="Maximum sequence length",
     )
     parser.add_argument(
-        "--encoder_layers",
-        "-ad",
+        "--encoder-layers",
+        "-el",
         type=int,
         default=6,
-        help="Number of layers in the transformer encoder",
+        help="Number of encoder layers",
     )
     parser.add_argument(
-        "--decoder_layers",
-        "-nl",
+        "--decoder-layers",
+        "-dl",
         type=int,
         default=12,
-        help="Number of layers in the transformer decoder",
+        help="Number of decoder layers",
     )
     parser.add_argument(
-        "--num_heads",
+        "--num-heads",
         "-nh",
         type=int,
         default=8,
-        help="Number of heads in multi-head attention",
+        help="Number of attention heads",
     )
     parser.add_argument(
-        "--dropout", "-dr", type=float, default=0.1, help="Dropout probability"
+        "--dropout-rate", "-dr", type=float, default=0.1, help="Dropout rate"
     )
 
     # Training parameters
     parser.add_argument(
-        "--model_path",
-        "-md",
+        "--model-path",
+        "-mp",
         type=str,
-        # default="./pretrained/model_image_captioning_eff_transfomer_final.pt",
         default="./pretrained/model_image_captioning_eff_transfomer_our.pt",
-        help="Path to save model",
+        help="Path to model file",
     )
     parser.add_argument(
         "--device",
-        "-d",
+        "-dv",
         type=str,
         default="cuda:0",
-        help="Device to use {cpu, cuda:0, cuda:1,...}",
+        help="Device to use",
     )
     parser.add_argument(
-        "--beam_size", "-b", type=int, default=3, help="Beam size for beam search"
+        "--beam-size", "-b", type=int, default=3, help="Beam size for beam search"
     )
 
     args = parser.parse_args()
@@ -80,19 +79,19 @@ def main() -> None:
     device = torch.device(args.device)
 
     # Load tokenizer
-    tokenizer = BertTokenizer.from_pretrained(args.tokenizer)
+    tokenizer = BertTokenizer.from_pretrained(args.tokenizer_name)
 
     # Load model ImageCaptionModel
     load_start_time = time.time()
 
     model_configs = {
-        "embedding_dim": args.embedding_dim,
+        "embedding_dim": args.embed_dim,
         "vocab_size": tokenizer.vocab_size,
         "max_seq_len": args.max_seq_len,
         "encoder_layers": args.encoder_layers,
         "decoder_layers": args.decoder_layers,
         "num_heads": args.num_heads,
-        "dropout": args.dropout,
+        "dropout": args.dropout_rate,
     }
     model = ImageCaptionModel(**model_configs)
     model.load_state_dict(torch.load(args.model_path, map_location=device))
