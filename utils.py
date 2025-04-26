@@ -19,53 +19,63 @@ transform = transforms.Compose(
 def visualize_log(
     training_log: dict[str, list[float] | list[list[float]]], output_dir: str
 ) -> None:
+    # use monospace everywhere
+    plt.rcParams["font.family"] = "monospace"
+
+    # helper for 1-based x-axis
+    epochs = list(range(1, len(training_log["train_loss"]) + 1))
+
     # Plot loss per epoch
-    plt.figure()
-
-    plt.plot(training_log["train_loss"], label="train")
-    plt.plot(training_log["val_loss"], label="val")
-
+    plt.figure(figsize=(8, 6))
+    plt.plot(epochs, training_log["train_loss"], label="train")
+    plt.plot(epochs, training_log["val_loss"], label="val")
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
+    plt.xticks(epochs)
+    plt.title("Loss per Epoch")
     plt.legend()
-    plt.title("Loss per epoch")
-
+    plt.grid(True, linestyle="--", alpha=0.5)
+    plt.tight_layout()
     plt.savefig(os.path.join(output_dir, "loss_epoch.png"))
+    plt.close()
 
-    # Plot bleu4 per epoch
-    plt.figure()
-
-    plt.plot(training_log["train_bleu4"], label="train")
-    plt.plot(training_log["val_bleu4"], label="val")
-
+    # Plot BLEU-4 per epoch
+    plt.figure(figsize=(8, 6))
+    plt.plot(epochs, training_log["train_bleu4"], label="train")
+    plt.plot(epochs, training_log["val_bleu4"], label="val")
     plt.xlabel("Epoch")
-    plt.ylabel("Bleu4")
+    plt.ylabel("BLEU-4")
+    plt.xticks(epochs)
+    plt.title("BLEU-4 per Epoch")
     plt.legend()
-    plt.title("BLEU-4 per epoch")
-
+    plt.grid(True, linestyle="--", alpha=0.5)
+    plt.tight_layout()
     plt.savefig(os.path.join(output_dir, "bleu4_epoch.png"))
+    plt.close()
 
     # Plot loss per batch
-    plt.figure()
-
     train_loss_batch: list[float] = []
     for loss in training_log["train_loss_batch"]:
         train_loss_batch += loss  # type: ignore
-
-    plt.plot(train_loss_batch, label="train")
-
     val_loss_batch: list[float] = []
     for loss in training_log["val_loss_batch"]:
         val_loss_batch += loss  # type: ignore
 
-    plt.plot(val_loss_batch, label="val")
+    batches_train = list(range(1, len(train_loss_batch) + 1))
+    batches_val = list(range(1, len(val_loss_batch) + 1))
 
+    plt.figure(figsize=(8, 6))
+    plt.plot(batches_train, train_loss_batch, label="train")
+    plt.plot(batches_val, val_loss_batch, label="val")
     plt.xlabel("Batch")
     plt.ylabel("Loss")
+    plt.xticks(fontsize=8)
+    plt.title("Loss per Batch")
     plt.legend()
-    plt.title("Loss per batch")
-
+    plt.grid(True, linestyle="--", alpha=0.5)
+    plt.tight_layout()
     plt.savefig(os.path.join(output_dir, "loss_batch.png"))
+    plt.close()
 
 
 def metric_scores(annotation_path: str, prediction_path: str) -> dict[str, float]:
@@ -74,6 +84,11 @@ def metric_scores(annotation_path: str, prediction_path: str) -> dict[str, float
     annotation_coco = COCO(annotation_path)
     predictions_coco = annotation_coco.loadRes(prediction_path)
 
+    # patched the package file to not use SPICE
+    # throwing exception in the java code
+
+    # another patch: use BERT tokenizer, instead
+    # of PBT tokenizer
     evaluator = COCOEvalCap(annotation_coco, predictions_coco)
     evaluator.params["image_id"] = predictions_coco.getImgIds()
     evaluator.evaluate()
