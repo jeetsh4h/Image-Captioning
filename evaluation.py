@@ -181,7 +181,7 @@ def main() -> None:
         "--model-path",
         "-mp",
         type=str,
-        default="./pretrained/model_image_captioning_eff_transfomer_our.pt",
+        default="./pretrained/model_image_captioning_eff_transfomer.pt",
         help="Path to model file",
     )
     parser.add_argument(
@@ -292,11 +292,14 @@ def main() -> None:
     model.eval()
 
     # convert karpathy json to coco format for evaluation
-    ann = convert_karpathy_to_coco_format(
-        karpathy_path=args.karpathy_json, annotation_path=args.val_annotations
-    )
     ann_path = os.path.join(args.output_dir, "coco_annotation_test.json")
-    json.dump(ann, open(ann_path, "w"))
+    if not os.path.exists(ann_path):
+        ann = convert_karpathy_to_coco_format(
+            karpathy_path=args.karpathy_json, annotation_path=args.val_annotations
+        )
+        json.dump(ann, open(ann_path, "w"))
+    else:
+        print(f"Annotation file already exists at {ann_path}, skipping conversion.")
 
     # Evaluate model on test dataset with beam search and save results
     beam_widths: list[int] = [args.beam_size]
@@ -304,37 +307,39 @@ def main() -> None:
 
     for b in beam_widths:
         try:
-            predictions: list[dict[str, Any]] = []
-            for image_path, image_id in tqdm(
-                zip(image_paths, image_ids), total=len(image_paths)
-            ):
-                caption = generate_caption(
-                    model=model,
-                    image_path=image_path,
-                    transform_fn=transform,
-                    tokenizer=tokenizer,
-                    max_seq_len=args.max_seq_len,
-                    beam_width=b,
-                    device=device,
+            predict_path = os.path.join(
+                args.output_dir, f"prediction_beam_width_{b}.json"
+            )
+            if os.path.exists(predict_path):
+                print(
+                    f"Prediction file for beam width {b} exists at {predict_path}, skipping generation."
                 )
-                predictions.append({"image_id": image_id, "caption": caption})
+            else:
+                predictions: list[dict[str, Any]] = []
+                for image_path, image_id in tqdm(
+                    zip(image_paths, image_ids), total=len(image_paths)
+                ):
+                    caption = generate_caption(
+                        model=model,
+                        image_path=image_path,
+                        transform_fn=transform,
+                        tokenizer=tokenizer,
+                        max_seq_len=args.max_seq_len,
+                        beam_width=b,
+                        device=device,
+                    )
+                    predictions.append({"image_id": image_id, "caption": caption})
 
-                # # print per-image true and predicted captions
-                # print(f"Image: {image_path}")
-                # for t in true_captions.get(image_id, []):
-                #     print(f"  True   : {t}")
-                # print(f"  Pred   : {caption}")
-                # print("-" * 40)
+                # Save predictions to JSON file
+                with open(predict_path, "w") as f:
+                    json.dump(predictions, f)
 
         except Exception as e:
             print(f"Error processing beam width {b}: {e}")
             continue
 
-        # Save predictions to JSON file
+        # Compute metrics
         try:
-            predict_path = os.path.join(
-                args.output_dir, f"prediction_beam_width_{b}.json"
-            )
             result = metric_scores(
                 annotation_path=ann_path, prediction_path=predict_path
             )
