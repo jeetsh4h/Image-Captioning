@@ -222,3 +222,10 @@ print("--- Caption: {}".format(cap))
      <td>there is a dog that is standing in the grass</td>
   </tr>
  </table>
+
+# Acknowledgment
+This repository is a orphaned fork of the work done by [TranQuocTrinh](https://github.com/TranQuocTrinh).
+
+The modifications and additions are done by [Saivee Phatak](https://github.com/SaiveePhatak) and [Jeet Shah](https://github.com/jeetsh4h)
+
+The work done here is a final submission for the course DTSC422: Natural Language Prediction. This was done in Semester II of the academic year 2024-25 at FLAME Univesrity with Prof. Manoranjan Dash.
