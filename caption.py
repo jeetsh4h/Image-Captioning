@@ -78,7 +78,7 @@ def main() -> None:
         "--model-path",
         "-mp",
         type=str,
-        default="./pretrained/model_image_captioning_eff_transfomer_our.pt",
+        default="./pretrained/model_image_captioning_eff_transfomer.pt",
         help="Path to model file",
     )
     parser.add_argument(
@@ -142,27 +142,8 @@ def main() -> None:
 
     print(f"Model loaded on {device} in {model_load_duration}")
 
-    # Process single or batch input
-    paths = []
-    if args.input_path:
-        if os.path.isdir(args.input_path):
-            for root, _, files in os.walk(args.input_path):
-                for f in files:
-                    if f.lower().endswith((".jpg", ".jpeg", ".png")):
-                        paths.append(os.path.join(root, f))
-        else:
-            paths = [args.input_path]
-    # Interactive fallback
-    if not paths:
-        print("Enter image path (or q to exit):")
-        while True:
-            p = input().strip()
-            if p.lower() == "q":
-                break
-            paths.append(p)
-
-    # Generate and print captions
-    for image_path in paths:
+    def generate_and_display_caption(image_path):
+        """Generate and display caption for a single image with timing information"""
         try:
             start = time.time()
             pred = generate_caption(
@@ -175,19 +156,49 @@ def main() -> None:
                 device=device,
                 print_process=False,
             )
-            dur = time.time() - start
+            duration = time.time() - start
+
+            print(f"Image: {image_path}")
+            basename = os.path.basename(image_path)
+            if basename in true_captions:
+                for caption in true_captions[basename]:
+                    print(f"  True   : {caption}")
+            print(f"  Pred   : {pred}")
+            print(f"  Time   : {duration:.3f}s")
+            print("=" * 80)
+            return True
         except Exception as e:
             print(f"Error generating caption for {image_path}: {e}")
-            continue
+            return False
 
-        print(f"Image: {image_path}")
-        basename = os.path.basename(image_path)
-        if basename in true_captions:
-            for t in true_captions[basename]:
-                print(f"  True   : {t}")
-        print(f"  Pred   : {pred}")
-        print(f"  Time   : {dur:.3f}s")
-        print("=" * 80)
+    # Process input paths
+    paths = []
+    if args.input_path:
+        if os.path.isdir(args.input_path):
+            for root, _, files in os.walk(args.input_path):
+                paths.extend(
+                    [
+                        os.path.join(root, f)
+                        for f in files
+                        if f.lower().endswith((".jpg", ".jpeg", ".png"))
+                    ]
+                )
+        elif os.path.exists(args.input_path):
+            paths = [args.input_path]
+
+    # Process all found images
+    for image_path in paths:
+        generate_and_display_caption(image_path)
+
+    # Interactive mode if no paths provided or explicitly requested
+    if not paths:
+        print("Enter image path (or q to exit): ", end="")
+        while True:
+            user_input = input().strip()
+            if user_input.lower() == "q":
+                break
+
+            generate_and_display_caption(user_input)
 
 
 if __name__ == "__main__":
