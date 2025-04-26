@@ -1,23 +1,4 @@
-<!-- # Image Captioning
-Image Captioning by deep learning model with Encoder as Efficientnet and Decoder as Decoder of Transformer -->
-# 1. Table of Contents
-- [1. Table of Contents](#1-table-of-contents)
-- [2. Objective](#2-objective)
-- [3. Model](#3-model)
-- [4. Dataset](#4-dataset)
-- [5. Training and Validation](#5-training-and-validation)
-  - [5.1. Pre-processing](#51-pre-processing)
-    - [5.1.1. Images](#511-images)
-    - [5.1.2. Captions](#512-captions)
-  - [5.2. Training](#52-training)
-    - [5.2.1. 4.2.1 Model configs](#521-421-model-configs)
-    - [5.2.2. Hyperparameters](#522-hyperparameters)
-  - [5.3. Validation](#53-validation)
-- [6. Evaluation](#6-evaluation)
-- [7. Inferece](#7-inferece)
-- [8. Conclusion](#8-conclusion)
-
-# 2. Objective
+# Objective
 
 The objective of this project is to build a model that can generate captions for images.
 
@@ -27,25 +8,26 @@ root/
 ├── coco/
 │   ├── annotations/
 │   │   ├── captions_train2014.json
-│   │   └── captions_train2014.json
+│   │   └── captions_val2014.json
 │   ├── karpathy/
 │   │   └── dataset_coco.json
+│   └── test2014/
 │   ├── train2014/
 │   └── val2014/
 │
-└── image_captioning/ # this repository
-    ├── images/
-    ├── pretrained/
-    ├── results/
-    ├── caption.py
-    ├── datasets.py
-    ├── evaluation.py
-    ├── models.py
-    ├── README.md
-    ├── train.py
-    └── utils.py
+├── images/
+├── pretrained/
+├── results/
+│
+├── caption.py
+├── datasets.py
+├── evaluation.py
+├── models.py
+├── README.md
+├── train.py
+└── utils.py
 ```
-# 3. Model
+# Model
 
 I use Encoder as Efficientnet to extract features from image and Decoder as Transformer to generate caption. But I also change the attention mechanism at step attention encoder output. Instead of using the Multi-Head Attention mechanism, I use the Attention mechanism each step to attend image features.
 <figure align="center">
@@ -54,10 +36,10 @@ I use Encoder as Efficientnet to extract features from image and Decoder as Tran
   </p>
 </figure>
 
-# 4. Dataset
-I'm using the MSCOCO '14 Dataset. You'd need to download the Training (13GB),  Validation (6GB) and Test (6GB) splits from [MSCOCO](http://cocodataset.org/#download) and place them in the `../coco` directory.
+# Dataset
+We are using the MSCOCO '14 Dataset. You'd need to download the Training (13GB),  Validation (6GB) and Test (6GB) splits from [MSCOCO](http://cocodataset.org/#download) and place them in the `./coco` directory.
 
-I'm also using Andrej Karpathy's split of the MSCOCO '14 dataset. It contains caption annotations for the MSCOCO, Flickr30k, and Flickr8k datasets. You can download it from [here](http://cs.stanford.edu/people/karpathy/deepimagesent/caption_datasets.zip). You'd need to unzip it and place it in the `../coco/karpathy` directory.
+We are also using Andrej Karpathy's split of the MSCOCO '14 dataset. It contains caption annotations for the MSCOCO, Flickr30k, and Flickr8k datasets. You can download it from [here](http://cs.stanford.edu/people/karpathy/deepimagesent/caption_datasets.zip). You'd need to unzip it and place it in the `./coco/karpathy` directory.
 In Andrej's split, the images are divided into train, val and test sets with the number of images in each set as shown in the table below:
 
 | Image/Caption | train | val | test |
@@ -67,9 +49,9 @@ In Andrej's split, the images are divided into train, val and test sets with the
 
 
 
-# 5. Training and Validation
-## 5.1. Pre-processing
-### 5.1.1. Images
+# Training and Validation
+## Pre-processing
+### Images
 I preprocessed the images with the following steps:
 - Resize the images to 256x256 pixels.
 - Convert the images to RGB.
@@ -88,7 +70,7 @@ transform = transforms.Compose([
 ```
 
 
-### 5.1.2. Captions
+### Captions
 Captions are both the target and the inputs of the Decoder as each word is used to generate the next word.
 
 I use BERTTokenizer to tokenize the captions.
@@ -101,8 +83,8 @@ token = tokenizer(caption, max_length=max_seq_len, padding="max_length", truncat
 
 For more details, see `datasets.py` file.
 
-## 5.2. Training
-### 5.2.1. 4.2.1 Model configs
+## Training
+### Model configs
 
 - embedding_dim: 512
 - vocab_size: 30522
@@ -112,7 +94,7 @@ For more details, see `datasets.py` file.
 - num_heads: 8
 - dropout: 0.1
 
-### 5.2.2. Hyperparameters
+### Hyperparameters
 
 - n_epochs: 25
 - batch_size: 24
@@ -123,51 +105,23 @@ For more details, see `datasets.py` file.
 - metric: bleu-4
 - early_stopping: 5
 
-## 5.3. Validation
+## Validation
 I evaluate the model on the validation set after each epoch. For each image, I generate a caption and evaluate the BLEU-4 score with list of reference captions by sentence_bleu. And for all the images, I calculate the BLEU-4 score with the corpus_bleu function from NLTK.
 
 You can see the detaile in the `train.py` file. Run `train.py` to train the model.
 ```bash
-python train.py \
-    --embedding_dim 512 \
-    --tokenizer bert-base-uncased \
-    --max_seq_len 128 \
-    --encoder_layers 6 \
-    --decoder_layers 12 \
-    --num_heads 8 \
-    --dropout 0.1 \
-    --model_path ./pretrained/model_image_captioning_eff_transfomer.pt \
-    --device cuda:0 \
-    --batch_size 24 \
-    --n_epochs 25 \
-    --learning_rate 1e-4 \
-    --early_stopping 5 \
-    --image_dir ../coco/ \
-    --karpathy_json_path ../coco/karpathy/dataset_coco.json \
-    --val_annotation_path ../coco/annotations/captions_val2014.json \
-    --log_path ./images/log_training.json \
-    --log_visualize_dir ./images/
+python train.py
 ```
 
-# 6. Evaluation
+> All defaults mentioned above are used. Use `--help` for options.
+
+# Evaluation
 See the `evaluation.py` file. Run `evaluation.py` to evaluate the model.
 
 ```bash
-python evaluation.py \
-    --embedding_dim 512 \
-    --tokenizer bert-base-uncased \
-    --max_seq_len 128 \
-    --encoder_layers 6 \
-    --decoder_layers 12 \
-    --num_heads 8 \
-    --dropout 0.1 \
-    --model_path ./pretrained/model_image_captioning_eff_transfomer.pt \
-    --device cuda:0 \
-    --image_dir ../coco/ \
-    --karpathy_json_path ../coco/karpathy/dataset_coco.json \
-    --val_annotation_path ../coco/annotations/captions_val2014.json \
-    --output_dir ./results/
+python evaluation.py
 ```
+> All defaults mentioned above are used. Use `--help` for options.
 
 To evaluate the model, I used the [pycocoevalcap package](https://github.com/salaniz/pycocoevalcap). Install it by `pip install pycocoevalcap`. And this package need to be Java 1.8.0 installed.
 
@@ -178,30 +132,27 @@ java -version
 
 pip install pycocoevalcap
 ```
+> Ensure that the output of `java -version` is `1.8.*`
 
-I use beam search to generate captions with beam size of 3. I use the BLEU-1, BLEU-2, BLEU-3, BLEU-4, METEOR, ROUGE-L, CIDEr, and SPICE score to evaluate the model. The results on the test set (5000 images) are shown below.
+Moreover, due to the package not being maintained, one has to manually comment out `SPICE` score calulation by editing the package file.
 
-| BLEU-1 | BLEU-2 | BLEU-3 | BLEU-4 | METEOR | ROUGE-L | CIDEr | SPICE |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| 0.675 | 0.504 | 0.372 | 0.273 | 0.259 | 0.521 | 0.933 | 0.190 |
+We used beam search to generate captions with beam size of 3 and 5. The metrics used to evaluate the model are BLEU-1, BLEU-2, BLEU-3, BLEU-4, METEOR, ROUGE-L, and CIDEr. The results on the test set (5000 images) are shown below.
 
+Metrics extracted from `our_model_3/results/metrics_summary.txt`:
 
-# 7. Inferece
-See the file `caption.py`. Run `caption.py` to generate captions for the test images. If you don't have resouces for training, you can download the pretrained model from [here](https://drive.google.com/file/d/1CcCPJ-cCfosGe7iOaPPbA3EJzNxsKuc_/view?usp=sharing).
+| Beam Width | Bleu_1 | Bleu_2 | Bleu_3 | Bleu_4 | METEOR | ROUGE_L | CIDEr |
+|:----------:|:------:|:------:|:------:|:------:|:------:|:-------:|:-----:|
+| 3          | 0.3134 | 0.1815 | 0.1056 | 0.0636 | 0.1354 | 0.3116  | 0.1234 |
+| 5          | 0.2935 | 0.1737 | 0.1040 | 0.0639 | 0.1538 | 0.2974  | 0.1055 |
+
+# Inference
+See the file `caption.py`. Run `caption.py` to generate captions for the test images. If you don't have resources for training, you can email me at [jeet.c.shah@flame.edu.in](mailto:jeet.c.shah@flame.edu.in) for pre-trained weights.
 
 ```bash
-python caption.py \
-    --embedding_dim 512 \
-    --tokenizer bert-base-uncased \
-    --max_seq_len 128 \
-    --encoder_layers 6 \
-    --decoder_layers 12 \
-    --num_heads 8 \
-    --dropout 0.1 \
-    --model_path ./pretrained/model_image_captioning_eff_transfomer.pt \
-    --device cuda:0 \
-    --beam_size 3 
+python caption.py -i <image_dir/image-file>
 ```
+> For interactive mode, drop the `-i` argument
+> All defaults mentioned above are used. Use `--help` for options.
 
 ```python
 from evaluation import generate_caption
@@ -226,12 +177,12 @@ print("--- Caption: {}".format(cap))
     <td><img src="images/test_5.jpg" ></td>
   </tr>
   <tr>
-    <td>A bride and groom cutting a wedding cake. </td>
-     <td>A man riding a wave on top of a surfboard.</td>
-     <td>A close up view of a keyboard and a mouse.</td>
+    <td>a bride and groom cutting into a cake with a knife</td>
+    <td>a man riding a wave on top of a surfboard</td>
+    <td>a keyboard mouse and mouse are on a desk</td>
   </tr>
- </table>
- 
+</table>
+
 <table>
   <tr>
     <td><img src="images/test_3.jpg" ></td>
@@ -239,24 +190,24 @@ print("--- Caption: {}".format(cap))
     <td><img src="images/test_7.jpg" ></td>
   </tr>
   <tr>
-    <td>A red fire hydrant sitting on the side of a street.</td>
-     <td>A woman holding a hot dog in front of her.</td>
-     <td>A red stop sign sitting on top of a metal pole.</td>
+    <td>a red fire hydrant sitting on the side of a road</td>
+    <td>a woman holding a hot dog in her hands</td>
+    <td>there is a stop sign on the side of the road</td>
   </tr>
- </table>
+</table>
 
- <table>
+<table>
   <tr>
     <td><img src="images/test_6.jpg" ></td>
     <td><img src="images/test_11.jpg" ></td>
     <td><img src="images/test_9.jpg" ></td>
   </tr>
   <tr>
-    <td>A little girl sitting in front of a laptop computer on a desk. </td>
-     <td>A group of people playing a game of frisbee in a park.</td>
-     <td>A group of people standing on top of a beach with surfboards.</td>
+    <td>a little girl sitting at a table with a laptop</td>
+    <td>two girls are playing frisbee in a field</td>
+    <td>a group of people on a beach with surfboards</td>
   </tr>
- </table>
+</table>
 
 **Some examples of captions generated from other images that are not in the COCO dataset are shown below.**
   <table>
@@ -266,11 +217,8 @@ print("--- Caption: {}".format(cap))
     <td><img src="images/test.jpg" ></td>
   </tr>
   <tr>
-    <td>A soccer player kicking a soccer ball on a green field. </td>
-     <td>A baby sleeping in a bed with a blanket on its head.</td>
-     <td>A brown and white dog standing on top of a grass-covered field.</td>
+    <td>a man on a soccer field kicking a ball</td>
+     <td>there is a baby that is laying on a bed</td>
+     <td>there is a dog that is standing in the grass</td>
   </tr>
  </table>
-
-
-# 8. Conclusion
