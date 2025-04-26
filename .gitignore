@@ -134,6 +134,8 @@ results/
 # dataset
 coco/
 pretrained/
+# for all the additional test images
 images/
+# debug files
 visualizations/
 *model*/
